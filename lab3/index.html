@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Візуалізація AST</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            color: #f4f4f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: #252526;
+            border-bottom: 1px solid #333333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 100;
+        }
+
+        .title-group h1 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            background: #333333;
+            border: 1px solid #474747;
+            color: #ffffff;
+            padding: 7px 16px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s ease;
+        }
+
+            .btn:hover {
+                background: #474747;
+            }
+
+        #file-input {
+            display: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: calc(100% - 56px);
+            cursor: grab;
+        }
+
+            #canvas-container:active {
+                cursor: grabbing;
+            }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .link {
+            fill: none;
+            stroke: #666666;
+            stroke-width: 2px;
+        }
+
+        .node circle {
+            stroke-width: 2px;
+            cursor: pointer;
+        }
+
+        .node text {
+            font-size: 13px;
+            font-family: Consolas, monospace;
+            fill: #ffffff;
+            pointer-events: none;
+            font-weight: 500;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>Візуалізація AST</h1>
+        </div>
+        <div class="controls">
+            <label for="file-input" class="btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                Відкрити ast.json
+            </label>
+            <input type="file" id="file-input" accept=".json">
+            <button class="btn" id="btn-reset">Розмістити по центру</button>
+        </div>
+    </header>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        const container = document.getElementById("canvas-container");
+        const svg = d3.select("#canvas-container").append("svg");
+        const g = svg.append("g");
+
+        const zoom = d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on("zoom", (event) => g.attr("transform", event.transform));
+
+        svg.call(zoom);
+
+        let savedData = null;
+
+        function getNodeColor(d) {
+        const name = d.data.name || "";
+        if (name.startsWith("Block") || name === "If") return { fill: "#1e3a8a", stroke: "#60a5fa" };
+        if (name.startsWith("Op:")) return { fill: "#78350f", stroke: "#fbbf24" };
+        if (name.startsWith("Id:")) return { fill: "#064e3b", stroke: "#34d399" };
+        return { fill: "#581c87", stroke: "#c084fc" };
+        }
+
+        function renderTree(treeData) {
+        savedData = treeData;
+        g.selectAll("*").remove();
+
+        const cWidth = container.clientWidth || window.innerWidth;
+        const cHeight = container.clientHeight || (window.innerHeight - 56);
+
+        const margin = { top: 60, right: 180, bottom: 60, left: 100 };
+        const innerWidth = Math.max(cWidth - margin.left - margin.right, 400);
+        const innerHeight = Math.max(cHeight - margin.top - margin.bottom, 300);
+
+        const root = d3.hierarchy(treeData);
+
+        const treeLayout = d3.tree().size([innerHeight, innerWidth]);
+        treeLayout(root);
+
+        g.selectAll(".link")
+        .data(root.links())
+        .enter().append("path")
+        .attr("class", "link")
+        .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+        const node = g.selectAll(".node")
+        .data(root.descendants())
+        .enter().append("g")
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.y},${d.x})`);
+
+        node.append("circle")
+        .attr("r", 9)
+        .style("fill", d => getNodeColor(d).fill)
+        .style("stroke", d => getNodeColor(d).stroke);
+
+        node.append("text")
+        .attr("dy", ".35em")
+        .attr("x", d => d.children ? -15 : 15)
+        .style("text-anchor", d => d.children ? "end" : "start")
+        .text(d => d.data.name);
+
+        svg.call(zoom.transform, d3.zoomIdentity.translate(margin.left, margin.top).scale(1));
+        }
+
+        fetch('ast.json')
+        .then(res => res.json())
+        .then(data => renderTree(data))
+        .catch(() => {});
+
+        document.getElementById("file-input").addEventListener("change", function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+        try {
+        const parsed = JSON.parse(evt.target.result);
+        renderTree(parsed);
+        } catch (err) {
+        alert("Помилка читання JSON: " + err.message);
+        }
+        };
+        reader.readAsText(file);
+        });
+
+        document.getElementById("btn-reset").addEventListener("click", () => {
+        if (savedData) renderTree(savedData);
+        });
+
+        window.addEventListener("resize", () => {
+        if (savedData) renderTree(savedData);
+        });
+    </script>
+</body>
+</html>
